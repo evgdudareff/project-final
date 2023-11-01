@@ -1,5 +1,6 @@
 package com.javarush.jira.bugtracking.attachment;
 
+import com.javarush.jira.common.error.AppException;
 import com.javarush.jira.common.error.IllegalRequestDataException;
 import com.javarush.jira.common.error.NotFoundException;
 import lombok.experimental.UtilityClass;
@@ -7,14 +8,14 @@ import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.net.MalformedURLException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 
 @UtilityClass
 public class FileUtil {
@@ -24,15 +25,28 @@ public class FileUtil {
         if (multipartFile.isEmpty()) {
             throw new IllegalRequestDataException("Select a file to upload.");
         }
+        Path dirPath = Paths.get(directoryPath);
+        Path pathToCreatedFile;
 
-        File dir = new File(directoryPath);
-        if (dir.exists() || dir.mkdirs()) {
-            File file = new File(directoryPath + fileName);
-            try (OutputStream outStream = new FileOutputStream(file)) {
-                outStream.write(multipartFile.getBytes());
-            } catch (IOException ex) {
-                throw new IllegalRequestDataException("Failed to upload file" + multipartFile.getOriginalFilename());
+        try {
+            if (!Files.exists(dirPath)) {
+                Files.createDirectory(dirPath);
             }
+            pathToCreatedFile = Files.createFile(Paths.get(directoryPath, fileName));
+        } catch (IOException ex){
+            throw new AppException("Failed to upload file. Internal server error when creation file or directory");
+        }
+
+        try(FileChannel fileChannel = FileChannel.open(pathToCreatedFile,  StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
+            byte[] multipartFileBytes = multipartFile.getBytes();
+            ByteBuffer byteBuffer = ByteBuffer.allocate(multipartFileBytes.length);
+
+            byteBuffer.put(multipartFileBytes);
+            byteBuffer.flip();
+
+            fileChannel.write(byteBuffer);
+        } catch (IOException ex){
+            throw new IllegalRequestDataException("Failed to upload file" + multipartFile.getOriginalFilename());
         }
     }
 

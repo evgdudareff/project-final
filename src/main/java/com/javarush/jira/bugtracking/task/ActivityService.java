@@ -8,7 +8,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import static com.javarush.jira.bugtracking.task.TaskUtil.getLatestValue;
 
@@ -72,5 +74,58 @@ public class ActivityService {
                 task.setTypeCode(latestType);
             }
         }
+    }
+
+    private Long getTaskDuration(Task task, String fromStatus, String toStatus) {
+        List<Activity> activityList = task.getActivities();
+        Long taskId = task.getId();
+        List<Activity> taskActivities = activityList.
+                stream().
+                filter(a -> a.getTaskId() == taskId).collect(Collectors.toList());
+
+        boolean taskHasChangedStatus = taskActivities.size() >= 2;
+        if (!taskHasChangedStatus) {
+            return 0L;
+        }
+
+        Activity inProgressActivity = taskActivities.
+                stream().
+                filter(a -> {
+                    assert a.getStatusCode() != null;
+                    return a.getStatusCode()
+                            .equals(fromStatus);
+                }).
+                findAny().
+                orElse(null);
+
+        if (inProgressActivity == null) {
+            return 0L;
+        }
+
+        Activity readyForReviewActivity = taskActivities.
+                stream().
+                filter(a -> {
+                    assert a.getStatusCode() != null;
+                    return a.getStatusCode()
+                            .equals(toStatus);
+                }).
+                findAny().
+                orElse(null);
+
+        if (readyForReviewActivity == null) {
+            return 0L;
+        }
+
+        return Duration.between(inProgressActivity.getUpdated(), readyForReviewActivity.getUpdated()).getSeconds();
+
+
+    }
+
+    public Long getTaskInProgressDuration(Task task){
+        return getTaskDuration(task, "in_progress", "ready_for_review");
+    }
+
+    public Long getTaskInTestingDuration(Task task){
+        return getTaskDuration(task, "ready_for_review", "done");
     }
 }

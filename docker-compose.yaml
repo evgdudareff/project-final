@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  postgres-db:
+    image: postgres:latest
+    restart: always
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER_NAME}
+      - POSTGRES_PASSWORD=${POSTGRES_USER_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DATABASE}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_LOCAL_PORT}:${POSTGRES_DOCKER_PORT}"
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "sh -c 'pg_isready -U ${POSTGRES_USER_NAME} -d ${POSTGRES_DATABASE}'"]
+      timeout: 45s
+      interval: 10s
+      retries: 10
+
+  postgres-db-test:
+    image: postgres:latest
+    restart: always
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER_NAME}
+      - POSTGRES_PASSWORD=${POSTGRES_USER_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_TEST_DATABASE}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_TEST_LOCAL_PORT}:${POSTGRES_DOCKER_PORT}"
+    volumes:
+      - ./pgdata-test:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "sh -c 'pg_isready -U ${POSTGRES_USER_NAME} -d ${POSTGRES_TEST_DATABASE}'"]
+      timeout: 45s
+      interval: 10s
+      retries: 10
+
+  backend:
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+      postgres-db-test:
+        condition: service_healthy
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    expose:
+      - "${SPRING_DOCKER_PORT}"
+
+    env_file: ./.env
+    environment:
+      SPRING_APPLICATION_JSON: '{
+            "spring.datasource.url"  : "jdbc:postgresql://postgres-db:$POSTGRES_DOCKER_PORT/$POSTGRES_DATABASE",
+            "spring.datasource.username" : "$POSTGRES_USER_NAME",
+            "spring.datasource.password" : "$POSTGRES_USER_PASSWORD"
+          }'
+
+  nginx:
+    image: nginx:latest
+    depends_on:
+      backend:
+        condition: service_started
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./config/nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./resources:/opt/jirarush/resources
